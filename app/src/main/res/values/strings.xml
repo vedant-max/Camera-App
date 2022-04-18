@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">CameraApp</string>
+    <string name="take_photo">Take Photo</string>
+    <string name="reject_photo">Reject Photo</string>
+</resources>
