@@ -59,6 +59,7 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-viewmodel:$lifecycle_version"
     // Architectural Components
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.1"
+    implementation("io.coil-kt:coil:2.0.0-rc03")
     // Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.2'
