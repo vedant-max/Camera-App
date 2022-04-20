@@ -3,11 +3,19 @@ package com.example.cameraapp
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -19,7 +27,17 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.drawToBitmap
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.example.cameraapp.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
@@ -33,6 +51,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var cameraExecutor: ExecutorService
 
+    private lateinit var myBitmap: Bitmap
+    private lateinit var uri: Uri
     private val viewModel: MainViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,9 +62,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         supportActionBar?.hide()
+
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
-
         // Request camera permissions
         if (allPermissionsGranted()) {
             startCamera()
@@ -52,22 +72,39 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(
                 this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
+        val emptyBitmap = Bitmap.createBitmap(300,200,Bitmap.Config.RGB_565)
 
         // Set up the listeners for take photo and video capture buttons
-        viewBinding.imageCaptureButton.setOnClickListener { takePhoto()
-            viewBinding.viewFinder.visibility = View.INVISIBLE
-            viewBinding.imageView.visibility = View.VISIBLE
-
+        viewBinding.imageCaptureButton.setOnClickListener {
+                takePhoto()
+                viewBinding.viewFinder.visibility = View.INVISIBLE
+                viewBinding.imageView.visibility = View.VISIBLE
         }
         viewBinding.rejectButton.setOnClickListener {
-            viewBinding.viewFinder.visibility = View.VISIBLE
             viewBinding.imageView.visibility = View.INVISIBLE
+            viewBinding.viewFinder.visibility = View.VISIBLE
+        }
+        viewBinding.random.setOnClickListener {
+            viewBinding.imageView.visibility = View.VISIBLE
+            viewBinding.viewFinder.visibility = View.INVISIBLE
+            GlobalScope.launch(Dispatchers.Main) {
+                myBitmap = viewBinding.imageView.drawToBitmap()
+                val paint = Paint().apply {
+                    color = Color.BLUE
+                    isAntiAlias = false
+                    style = Paint.Style.FILL_AND_STROKE
+                }
+                val canvas = Canvas(myBitmap)
+                canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
+                canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
+                viewBinding.imageView.setImageBitmap(myBitmap)
+            }
         }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
-    private fun takePhoto() {
+    private fun takePhoto(){
         // Get a stable reference of the modifiable image capture use case
         val imageCapture = imageCapture ?: return
 
@@ -102,7 +139,20 @@ class MainActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults){
                     val msg = "Photo capture succeeded: ${output.savedUri}"
                     Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-                    viewBinding.imageView.setImageURI(output.savedUri)
+                    viewBinding.imageView.setImageURI(output.savedUri!!)
+                    //Add Canvas Here
+//                    GlobalScope.launch(Dispatchers.Main) {
+//                        myBitmap = getBitmap(output.savedUri!!)
+//                        val paint = Paint().apply {
+//                            color = Color.BLUE
+//                            isAntiAlias = false
+//                            style = Paint.Style.FILL_AND_STROKE
+//                        }
+//                        val canvas = Canvas(myBitmap)
+//                        canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
+//                        canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
+//                        viewBinding.imageView.setImageBitmap(myBitmap)
+//                    }
                     Log.d(TAG, msg)
                 }
             }
@@ -184,11 +234,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-//    private fun delay(): Boolean{
-//        GlobalScope.launch {
-//            kotlinx.coroutines.delay(3000)
-//            boolean = false
-//        }
-//        return boolean
-//    }
+    private suspend fun getBitmap() : Bitmap {
+        val loading = ImageLoader(this)
+        val request = ImageRequest.Builder(this).data(viewBinding.imageView.id).build()
+        val result =
+            GlobalScope.async {
+                (loading.execute(request) as SuccessResult).drawable
+            }
+        return (result.await() as BitmapDrawable).bitmap
+    }
+    private fun rand(e: Int) = Random().nextInt(e).toFloat()
 }
