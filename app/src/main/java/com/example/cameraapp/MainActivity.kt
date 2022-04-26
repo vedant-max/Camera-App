@@ -1,7 +1,10 @@
 package com.example.cameraapp
 
 import android.Manifest
+import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -9,6 +12,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.media.Image
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +21,7 @@ import android.util.Log
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -26,11 +31,17 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.applyCanvas
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.drawToBitmap
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.lifecycle.MutableLiveData
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.canhub.cropper.CropImageContract
+import com.canhub.cropper.CropImageView
+import com.canhub.cropper.options
 import com.example.cameraapp.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -52,17 +63,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
 
     private lateinit var myBitmap: Bitmap
-    private lateinit var uri: Uri
     private val viewModel: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installSplashScreen().apply {
-            setKeepVisibleCondition{
-                viewModel.isLoading.value
-            }
+            setVisible(viewModel.isLoading.value)
         }
         supportActionBar?.hide()
-
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
         // Request camera permissions
@@ -72,35 +80,47 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(
                 this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
-        val emptyBitmap = Bitmap.createBitmap(300,200,Bitmap.Config.RGB_565)
-
         // Set up the listeners for take photo and video capture buttons
         viewBinding.imageCaptureButton.setOnClickListener {
-                takePhoto()
-                viewBinding.viewFinder.visibility = View.INVISIBLE
-                viewBinding.imageView.visibility = View.VISIBLE
-        }
-        viewBinding.rejectButton.setOnClickListener {
-            viewBinding.imageView.visibility = View.INVISIBLE
-            viewBinding.viewFinder.visibility = View.VISIBLE
-        }
-        viewBinding.random.setOnClickListener {
-            viewBinding.imageView.visibility = View.VISIBLE
+            takePhoto()
             viewBinding.viewFinder.visibility = View.INVISIBLE
-            GlobalScope.launch(Dispatchers.Main) {
-                myBitmap = viewBinding.imageView.drawToBitmap()
-                val paint = Paint().apply {
-                    color = Color.BLUE
-                    isAntiAlias = false
-                    style = Paint.Style.FILL_AND_STROKE
+            viewBinding.cropper.visibility = View.VISIBLE
+        }
+        viewBinding.changeColor.setOnClickListener {
+            val points = viewModel.coordinates
+            val cropPoints = viewBinding.cropper.cropPoints
+            val x1 = cropPoints[0]
+            val x2 = cropPoints[2]
+            val y1 = cropPoints[1]
+            val y2 = cropPoints[5]
+            val canvas = Canvas(myBitmap)
+            val paint = Paint().apply {
+                color = Color.YELLOW
+                style = Paint.Style.FILL_AND_STROKE
+            }
+            for (point in points){
+                if((point.first>x1 && point.first<x2) && (point.second>y1 && point.second<y2)){
+                    canvas.drawCircle(point.first,point.second,(30).toFloat(),paint)
                 }
-                val canvas = Canvas(myBitmap)
-                canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
-                canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
-                viewBinding.imageView.setImageBitmap(myBitmap)
             }
         }
-
+        viewBinding.rejectButton.setOnClickListener {
+            viewBinding.cropper.visibility = View.INVISIBLE
+            viewBinding.viewFinder.visibility = View.VISIBLE
+            viewModel.coordinates.clear()
+            viewBinding.cropper.clearImage()
+        }
+        viewBinding.random.setOnClickListener {
+            val canvas = Canvas(myBitmap)
+            val paint = Paint().apply {
+                color = Color.BLUE
+                style = Paint.Style.FILL_AND_STROKE
+            }
+            val (x,y) = Pair(rand(),rand())
+            canvas.drawCircle(x,y,(30).toFloat(),paint)
+            viewModel.coordinates.add(Pair(x,y))
+            viewBinding.cropper.setImageBitmap(myBitmap)
+        }
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
@@ -139,20 +159,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults){
                     val msg = "Photo capture succeeded: ${output.savedUri}"
                     Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-                    viewBinding.imageView.setImageURI(output.savedUri!!)
-                    //Add Canvas Here
-//                    GlobalScope.launch(Dispatchers.Main) {
-//                        myBitmap = getBitmap(output.savedUri!!)
-//                        val paint = Paint().apply {
-//                            color = Color.BLUE
-//                            isAntiAlias = false
-//                            style = Paint.Style.FILL_AND_STROKE
-//                        }
-//                        val canvas = Canvas(myBitmap)
-//                        canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
-//                        canvas.drawCircle(rand(myBitmap.width), rand(myBitmap.height), (30).toFloat(), paint)
-//                        viewBinding.imageView.setImageBitmap(myBitmap)
-//                    }
+                    GlobalScope.launch(Dispatchers.Main) {
+                        myBitmap = getBitmap(output.savedUri!!)
+                        viewBinding.cropper.setImageBitmap(getBitmap(output.savedUri!!))
+                    }
                     Log.d(TAG, msg)
                 }
             }
@@ -160,7 +170,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
-
         //bind lifecycle of camera to the lifecycle owner
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -234,14 +243,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    private suspend fun getBitmap() : Bitmap {
+    private suspend fun getBitmap(uri: Uri) : Bitmap {
         val loading = ImageLoader(this)
-        val request = ImageRequest.Builder(this).data(viewBinding.imageView.id).build()
+        val request = ImageRequest.Builder(this).data(uri).build()
         val result =
             GlobalScope.async {
                 (loading.execute(request) as SuccessResult).drawable
             }
         return (result.await() as BitmapDrawable).bitmap
     }
-    private fun rand(e: Int) = Random().nextInt(e).toFloat()
+
+    private fun rand() = (100..1600).random().toFloat()
 }
